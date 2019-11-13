@@ -21,6 +21,7 @@ class RapDataset:
 
         self.geniusid2local = np.load('../geniusid2local.npy').item()
         self.part2ind = np.load('../part2ind.npy').item()
+        self.ind2sorted = np.load('../ind2sorted.npy').item()
 
     def _load_files(self):
         labels = os.listdir(self.bpe_dir)
@@ -28,7 +29,7 @@ class RapDataset:
         valid_labels = []
         tokens_per_file = []
         print('Loading files')
-        for file in tqdm(labels[:1000]):
+        for file in tqdm(labels):
             with open(os.path.join(self.bpe_dir, file), 'r') as f:
                 data = f.read()
             num_tokens = self._get_tokens_per_file(data)
@@ -62,8 +63,6 @@ class RapDataset:
         inds = self.sample_inds[choice]
         inds_to_take = list(np.random.choice(inds, self.batch_size))
         for ind in inds_to_take:
-            print(ind)
-            print(inds)
             inds.remove(ind)
         batch_files = [self.file_array[x] for x in inds_to_take]
         batch = self._files2numeric(batch_files, choice)
@@ -99,6 +98,7 @@ class RapDataset:
             tokens_string = tokens_split[2 * seg + 1]
             tokens_string = tokens_string.strip().split()
             tokens_int = [int(x) for x in tokens_string]
+            tokens_int = [self.ind2sorted[x] for x in tokens_int]
             curr_len = len(tokens_int)
 
             tokens[last_pos: last_pos + curr_len] = tokens_int

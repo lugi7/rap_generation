@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils import checkpoint
+from torch.utils.checkpoint import checkpoint
 
 class GlobalPositionContainer(nn.Module):
     def __init__(self, emb_dim=128, milestones=[256, 512]):
@@ -17,8 +17,6 @@ class GlobalPositionContainer(nn.Module):
         Rc, Rd = self._get_params()
         self.Rc = nn.Parameter(Rc)
         self.Rd = nn.Parameter(Rd)
-
-
 
     def _get_interpolation(self, steps):
         return torch.arange(1, steps + 1).view(1, -1, 1).float() / steps
@@ -84,16 +82,20 @@ class DoubleAttentionLayer(nn.Module):
         qc = torch.tanh(qc)
         k = k.view(k.shape[:-1] + (self.n_heads, self.head_dim))
         k = torch.tanh(k)
-        context_attention = torch.einsum('bjnd,bknd->bjkn', qc, k)
+
+        einsum = lambda x, y: torch.einsum('bjnd,bknd->bjkn', x, y)
+        context_attention = checkpoint(einsum, qc, k)
 
         # position attention
         qp = q + Bp
         qp = torch.tanh(qp)
         qp = qp.view(qp.shape[:-1] + (self.n_heads, self.head_dim))
         kp = self.Wp(gpe)
-        kp = kp.view(kp.shape[:-1] + (self.n_heads, self.head_dim))
+        kp = kp.view(kp.shape[1: -1] + (self.n_heads, self.head_dim))
         kp = torch.tanh(kp)
-        position_attention = torch.einsum('bjnd,bknd->bjkn', qp, kp)
+
+        einsum = lambda x, y: torch.einsum('bjnd,knd->bjkn', x, y)
+        position_attention = checkpoint(einsum, qp, kp)
         pad = context_attention.shape[2] - position_attention.shape[2]
         position_attention = F.pad(position_attention, (0, 0, pad, 0), mode='replicate')
         position_attention = self._rel_shift(position_attention)
@@ -129,7 +131,7 @@ class DoubleAttentionLayer(nn.Module):
         if not self.last_layer:
             q = self.Wq(f_emb)
             f_add = self._get_attention(q, k, v, self.Bfc, self.Bfp, gpe, f_mask)
-            f_emb += f_add
+            f_emb = f_emb + f_add
             f_emb = self.norm(f_emb)
 
         return u_emb, f_emb
@@ -190,13 +192,14 @@ class EmbeddingModule(nn.Module):
 
 class StemTokens(nn.Module):
     def __init__(self, emb_dim=512, n_artists=2820, n_parts=6, artist_dim=128, part_dim=8):
+        super().__init__()
         self.artist_emb = nn.Linear(n_artists, artist_dim)
         self.artist_map = nn.Linear(artist_dim, emb_dim)
 
         self.part_emb = nn.Linear(n_parts, part_dim)
         self.part_map = nn.Linear(part_dim, emb_dim)
 
-    def forward(self, artists, parts):
+    def forward(self, parts, artists):
         artists = self.artist_emb(artists)
         artists = self.artist_map(artists)
 

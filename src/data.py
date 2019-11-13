@@ -13,7 +13,7 @@ class RapDataset:
         self.seq_len = seq_len
         self.emb_dim = emb_dim
         self.max_token_ind = 20000
-        self.batch_size = 32
+        self.batch_size = batch_size
         self.max_len = max_len
 
         self.file_labels, self.file_array, self.tokens_per_file = self._load_files()

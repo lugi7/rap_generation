@@ -42,7 +42,7 @@ class GlobalPositionContainer(nn.Module):
 
 
 class DoubleAttentionLayer(nn.Module):
-    def __init__(self, emb_dim=512, gp_dim=128, n_heads=8, last_layer=False):
+    def __init__(self, emb_dim=512, gp_dim=128, n_heads=8, last_layer=False, dropout=0.1):
         self.emb_dim = emb_dim
         self.n_heads = 8
         self.head_dim = emb_dim // n_heads
@@ -62,6 +62,8 @@ class DoubleAttentionLayer(nn.Module):
         self.Wu = nn.Linear(emb_dim, emb_dim)
         self.Buc = nn.Parameter(0.2 * torch.randn(1, 1, emb_dim))
         self.Bup = nn.Parameter(0.2 * torch.randn(1, 1, emb_dim))
+
+        self.dropout = nn.Dropout(dropout)
 
         self.norm = nn.LayerNorm(emb_dim, elementwise_affine=False)
 
@@ -107,8 +109,10 @@ class DoubleAttentionLayer(nn.Module):
         v = v.view(v.shape[:-1] + (self.n_heads, self.head_dim))
         v = torch.tanh(v)  # (bs, k_len, n_head, head_dim)
 
-        add = torch.einsum('bjkn,bknd->bjnd', attention, v)
+        einsum = lambda x, y: torch.einsum('bjkn,bknd->bjnd', x, y)
+        add = checkpoint(einsum, attention, v)
         add = add.reshape(q.shape)
+        add = self.dropout(add)
 
         return add
 
@@ -117,15 +121,17 @@ class DoubleAttentionLayer(nn.Module):
             f_mem = torch.cat([self.memory, f_emb], dim=1)
         else:
             f_mem = f_emb
-        self.register_buffer('memory', f_emb)
+        self.register_buffer('memory', f_emb.detach())
 
         #unknown words embedding
-        q = self.Wu(f_emb)
+        q = self.Wu(u_emb)
         kv = self.Wkv(f_mem)
         k, v = torch.chunk(kv, 2, dim=-1)
 
         u_add = self._get_attention(q, k, v, self.Buc, self.Bup, gpe, u_mask)
-        u_emb += u_add
+        if first_part:
+            u_add[:, 0] *= 0
+        u_emb = u_emb + u_add
         u_emb = self.norm(u_emb)
 
         if not self.last_layer:

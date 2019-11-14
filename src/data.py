@@ -6,13 +6,13 @@ from collections import Counter
 from torch.utils.data import Dataset
 
 class RapDataset:
-    def __init__(self, bpe_dir='../bpe', seq_len=512, emb_dim=512, max_token_ind=20000, batch_size=32, max_len=2048):
+    def __init__(self, bpe_dir='../bpe', seq_len=512, emb_dim=512, max_token_ind=16000, batch_size=32, max_len=2048):
         self.r = r'\[(.*)\]\n'
 
         self.bpe_dir = bpe_dir
         self.seq_len = seq_len
         self.emb_dim = emb_dim
-        self.max_token_ind = 20000
+        self.max_token_ind = max_token_ind
         self.batch_size = batch_size
         self.max_len = max_len
 
@@ -57,17 +57,20 @@ class RapDataset:
         if not choice_array:
             raise StopIteration()
 
-        choice = np.random.choice(choice_array)
+        choice = np.random.choice(choice_array, replace=False)
         self.num_batches[choice] -= 1
 
         inds = self.sample_inds[choice]
-        inds_to_take = list(np.random.choice(inds, self.batch_size))
+        inds_to_take = list(np.random.choice(inds, self.batch_size, replace=False))
         for ind in inds_to_take:
             inds.remove(ind)
         batch_files = [self.file_array[x] for x in inds_to_take]
         batch = self._files2numeric(batch_files, choice)
 
         return batch
+
+    def __len__(self):
+        return len(self.file_array) // self.batch_size
 
     def _files2numeric(self, batch, choice):
         #returns choice * ((bs, seq_len), (bs, seq_len, n_parts), (bs, seq_len, num_artists))
